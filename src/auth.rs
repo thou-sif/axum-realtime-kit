@@ -137,8 +137,6 @@ where
     }
 }
 
-
-
 /// A private helper function to extract a bearer token from the Authorization header.
 fn get_token_from_headers(headers: &HeaderMap) -> Option<String> {
     headers

@@ -7,9 +7,9 @@ use crate::ws::types::{ConnectionId, Topic, WsSink};
 use async_trait::async_trait;
 use axum::http::StatusCode;
 use serde::{Serialize, de::DeserializeOwned};
+use serde_json::Value;
 use std::fmt::Debug;
 use std::sync::Arc;
-use serde_json::Value;
 
 /// A context object passed to message handler methods.
 ///

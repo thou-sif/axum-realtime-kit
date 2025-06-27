@@ -7,7 +7,7 @@ use futures::{
 use std::{collections::HashMap, fmt::Debug, hash::Hash, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tokio::time::timeout;
-use tracing::{Span, debug, error, info, info_span, instrument, warn}; // Added tracing imports
+use tracing::{debug, error, info, info_span, instrument, warn}; // Added tracing imports
 
 // --- Type Aliases ---
 
@@ -91,7 +91,7 @@ where
     pub async fn execute<F, Fut>(&self, key: K, operation: F) -> Result<Arc<T>, Arc<Error>>
     where
         F: FnOnce() -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = Result<T, Error>> + Send + 'static,
+        Fut: Future<Output = Result<T, Error>> + Send + 'static,
     {
         let mut maybe_newly_created = false; // Track if we inserted the future
 
@@ -407,13 +407,13 @@ mod tests {
 
         // Operation that takes longer than the timeout
         // Note: We don't need Arc<AtomicUsize> here as it won't complete.
-        let long_op = || async {
+        let _long_op = || async {
             let key_in_op = "timeout_key"; // Can capture or just redefine
             info!(key = %key_in_op, "--- Executing long_op (will time out) ---");
             sleep(Duration::from_millis(100)).await;
             // This part is never reached due to timeout
             info!(key = %key_in_op, "--- Long op finished (should not see this) ---");
-            Ok::<String, anyhow::Error>("Should not reach here".to_string())
+            Ok::<String, Error>("Should not reach here".to_string())
         };
 
         // Spawn multiple concurrent requests

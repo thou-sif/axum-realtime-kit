@@ -1,9 +1,9 @@
 use axum::{
+    Router,
     extract::{Path as AxumPath, State, WebSocketUpgrade}, // Renamed Path to avoid conflict
     http::StatusCode,
     response::IntoResponse,
     routing::get,
-    Router,
 };
 use axum_realtime_kit::{
     auth::{TokenValidator, WsAuth}, // WsAuth needs the "auth" feature
@@ -11,10 +11,10 @@ use axum_realtime_kit::{
     ws::handler::HandlerError,
 };
 use serde::{Deserialize, Serialize};
+use std::error::Error as StdError;
 use std::{fmt, net::SocketAddr, sync::Arc};
 use tracing::info;
 use uuid::Uuid;
-use std::error::Error as StdError;
 
 // 1. Define User, Messages, Events, and AppState
 
@@ -43,8 +43,15 @@ enum ClientMessage {
 
 #[derive(Debug, Clone, Serialize)]
 enum ServerEvent {
-    UserJoined { username: String, room: String },
-    NewMessage { room: String, username: String, text: String },
+    UserJoined {
+        username: String,
+        room: String,
+    },
+    NewMessage {
+        room: String,
+        username: String,
+        text: String,
+    },
     Pong, // Direct response content
 }
 
@@ -106,15 +113,12 @@ impl MessageHandler for ChatMessageHandler {
     type AppState = AppState; // The app state used by WebsocketService
     type UserId = Uuid; // The type of User::id
 
-    async fn on_connect(
-        &self,
-        context: &ConnectionContext<Self::AppState, Self::UserId>,
-    ) {
+    async fn on_connect(&self, context: &ConnectionContext<Self::AppState, Self::UserId>) {
         info!(
             "User {} ({}) connected to topic '{}'",
             context.user_id, // This would be more useful if we had the full User struct here
-                              // but WsAuth only passes the ID to upgrade_handler.
-                              // We can fetch user details in on_connect if needed from AppState.
+            // but WsAuth only passes the ID to upgrade_handler.
+            // We can fetch user details in on_connect if needed from AppState.
             context.user_id, // placeholder for username, see comment above
             context.topic
         );
@@ -134,7 +138,9 @@ impl MessageHandler for ChatMessageHandler {
             ClientMessage::Ping => {
                 info!("Received Ping, sending Pong directly");
                 // Ok(Some(ServerEvent::Pong)) // This would work if ServerEvent was directly serializable to Value
-                Ok(Some(serde_json::to_value(ServerEvent::Pong).map_err(HandlerError::Serialization)?))
+                Ok(Some(
+                    serde_json::to_value(ServerEvent::Pong).map_err(HandlerError::Serialization)?,
+                ))
             }
             _ => Ok(None), // Fall through to broadcast handler
         }
@@ -150,7 +156,15 @@ impl MessageHandler for ChatMessageHandler {
                 // Here, you'd typically fetch the username associated with context.user_id
                 // For simplicity, we'll just use the ID as a placeholder.
                 // In a real app: let username = get_username_from_db(context.user_id, &context.app_state).await;
-                let username = format!("User_{}", context.user_id.to_string().split('-').next().unwrap_or("anon"));
+                let username = format!(
+                    "User_{}",
+                    context
+                        .user_id
+                        .to_string()
+                        .split('-')
+                        .next()
+                        .unwrap_or("anon")
+                );
                 info!(
                     "User {} broadcasting message to room '{}': {}",
                     username, room, text
@@ -161,7 +175,10 @@ impl MessageHandler for ChatMessageHandler {
                 if room != context.topic {
                     return Err(HandlerError::Custom(
                         StatusCode::BAD_REQUEST,
-                        Some(format!("Cannot send to room '{}' from topic '{}'", room, context.topic))
+                        Some(format!(
+                            "Cannot send to room '{}' from topic '{}'",
+                            room, context.topic
+                        )),
                     ));
                 }
 
@@ -174,17 +191,19 @@ impl MessageHandler for ChatMessageHandler {
             ClientMessage::Ping => {
                 // This case should ideally be handled by handle_direct_message
                 // If it reaches here, it means handle_direct_message returned Ok(None)
-                info!("Ping reached broadcast_message handler (should not happen if direct_message handles it)");
+                info!(
+                    "Ping reached broadcast_message handler (should not happen if direct_message handles it)"
+                );
                 Ok(None)
             }
         }
     }
 
-    async fn on_disconnect(
-        &self,
-        context: &ConnectionContext<Self::AppState, Self::UserId>,
-    ) {
-        info!("User {} disconnected from topic '{}'", context.user_id, context.topic);
+    async fn on_disconnect(&self, context: &ConnectionContext<Self::AppState, Self::UserId>) {
+        info!(
+            "User {} disconnected from topic '{}'",
+            context.user_id, context.topic
+        );
         // Example: Announce user left
         // self.publish_event(&context.topic, ServerEvent::UserLeft { username: context.user_id.to_string(), room: context.topic.clone() }, context).await;
     }
@@ -240,7 +259,11 @@ impl TokenValidator for ServerState {
 async fn main() {
     dotenv::dotenv().ok();
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env().add_directive("basic_chat=info".parse().unwrap()).add_directive("axum_realtime_kit=info".parse().unwrap()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("basic_chat=info".parse().unwrap())
+                .add_directive("axum_realtime_kit=info".parse().unwrap()),
+        )
         .init();
 
     let app_specific_state = Arc::new(AppState {
@@ -249,13 +272,13 @@ async fn main() {
 
     let chat_handler = ChatMessageHandler;
 
-    let redis_url = std::env::var("REDIS_URL")
-        .unwrap_or_else(|_| {
-            info!("REDIS_URL not found in environment, using default");
-            "redis://default:jZCdns.redis-cloud.com:13656".to_string()
-        });
+    let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| {
+        info!("REDIS_URL not found in environment, using default");
+        "redis://default:jZCdns.redis-cloud.com:13656".to_string()
+    });
 
-    let ws_service = WebsocketService::new(&redis_url, chat_handler, Arc::clone(&app_specific_state));
+    let ws_service =
+        WebsocketService::new(&redis_url, chat_handler, Arc::clone(&app_specific_state));
 
     let server_state = ServerState {
         app_state: app_specific_state,

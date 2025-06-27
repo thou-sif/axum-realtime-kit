@@ -1,7 +1,7 @@
 //! The primary `WebsocketService` that manages connections and state.
 
 use crate::ws::{
-    handler::{ConnectionContext, MessageHandler, HandlerError},
+    handler::{ConnectionContext, HandlerError, MessageHandler},
     types::{ConnectionId, RedisCommand, Topic, WsSink, WsState},
 };
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
@@ -9,11 +9,11 @@ use futures_util::{
     SinkExt,
     stream::{SplitStream, StreamExt},
 };
+use redis::AsyncCommands;
 use redis::aio::PubSub;
 use serde::Serialize;
 use std::fmt::Debug;
 use std::sync::Arc;
-use redis::AsyncCommands;
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info, instrument, warn};
 
@@ -85,7 +85,7 @@ impl<H: MessageHandler> WebsocketService<H> {
         user_id: H::UserId,
     ) {
         let conn_id = ConnectionId::new_v4();
-        tracing::Span::current().record("conn_id", &tracing::field::display(conn_id));
+        tracing::Span::current().record("conn_id", tracing::field::display(conn_id));
 
         let (sink, stream) = socket.split();
         let sink = Arc::new(Mutex::new(sink));
@@ -162,8 +162,13 @@ impl<H: MessageHandler> WebsocketService<H> {
 
         // 1. Try the direct message handler first.
         match self.handler.handle_direct_message(&msg, context).await {
-            Ok(Some(response_value)) => { // <--- RECEIVES A `serde_json::Value`
-                if self.send_json_to_sink(&response_value, &context.sink).await.is_err() {
+            Ok(Some(response_value)) => {
+                // <--- RECEIVES A `serde_json::Value`
+                if self
+                    .send_json_to_sink(&response_value, &context.sink)
+                    .await
+                    .is_err()
+                {
                     warn!("Failed to send direct response to client.");
                 }
                 return; // Message handled, do not fall through.
@@ -178,15 +183,12 @@ impl<H: MessageHandler> WebsocketService<H> {
         }
 
         // 2. Fall back to the broadcast message handler.
-        match self
-            .handler
-            .handle_broadcast_message(msg, context)
-            .await
-        {
+        match self.handler.handle_broadcast_message(msg, context).await {
             Ok(Some(event_to_publish)) => {
                 if let Err(e) = self.publish_event(&context.topic, &event_to_publish).await {
                     error!("Failed to publish event after handling message: {}", e);
-                    self.send_error_response("Failed to broadcast event", &context.sink).await;
+                    self.send_error_response("Failed to broadcast event", &context.sink)
+                        .await;
                 }
             }
             Ok(None) => { /* Handled successfully, but nothing to broadcast. */ }

@@ -1,11 +1,9 @@
 //! Provides the generic Axum handler for upgrading HTTP requests to WebSockets.
 
-#[cfg(feature = "auth")]
-use crate::auth::WsAuth;
 use crate::ws::handler::MessageHandler;
 use crate::ws::service::WebsocketService;
 use axum::{
-    extract::{Path, State, ws::WebSocketUpgrade},
+    extract::{State, ws::WebSocketUpgrade},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -99,7 +97,7 @@ use tracing::{error, instrument};
 ///             self.app_state.validate_token(token).await
 ///         }
 ///     }
-/// 
+///
 ///     let app_state = Arc::new(AppState {});
 ///     let handler = MyHandler {};
 ///     let ws_service = WebsocketService::new("redis://127.0.0.1/", handler, app_state.clone());
@@ -122,10 +120,10 @@ use tracing::{error, instrument};
 ///                 let user_id = auth.0.id;
 ///                 // Use the ws_service from the combined state
 ///                 upgrade_handler(
-///                     ws, 
-///                     State(state.ws_service), 
-///                     user_id, 
-///                     topic, 
+///                     ws,
+///                     State(state.ws_service),
+///                     user_id,
+///                     topic,
 ///                     |app_state, user_id, topic| validate_topic_access(app_state, user_id, topic)
 ///                 ).await
 ///             })
